@@ -3,14 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>📄 PDF & 图片 智能检索 · 点击定位原文</title>
+  <title>📄 前辈 请放心交给我吧！🤲</title>
 
-  <!-- PDF.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
-  </script>
-  <!-- Tesseract.js (OCR) -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js">
-  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
   <style>
     :root {
@@ -27,6 +24,8 @@
       --radius-sm: 10px;
       --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      --pink-highlight: rgba(255, 105, 180, 0.4);
+      --pink-text-bg: #ffb6c1;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,10 +63,14 @@
     .app-header .logo {
       display: inline-flex; align-items: center; gap: 10px;
       font-size: 1.8rem; font-weight: 700; color: #5c3d0e; letter-spacing: -0.02em;
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
     }
     .app-header .subtitle { font-size: 0.9rem; color: var(--text-secondary); margin-top: 2px; }
 
-    /* 搜索栏 */
     .search-section {
       background: var(--card-bg); border-radius: var(--radius); padding: 20px 24px;
       box-shadow: var(--shadow); border: 1px solid var(--border);
@@ -101,13 +104,17 @@
     .btn-image-search:hover { background: #efe4cf; border-color: var(--accent); }
     .btn-clear { background: transparent; color: #9a8b6e; padding: 8px 14px; font-size: 0.85rem; border: 1px solid transparent; }
     .btn-clear:hover { background: #f5efe0; border-color: #e0d4b8; color: #5c3d0e; }
-    .btn-window {
-      background: #f0f4ff; color: #2c3e50; border: 1px solid #c8d6e5;
-    }
+    .btn-window { background: #f0f4ff; color: #2c3e50; border: 1px solid #c8d6e5; }
     .btn-window:hover { background: #e3e9ff; border-color: #8ca0b3; }
     .btn-small { padding: 7px 14px; font-size: 0.8rem; border-radius: 20px; }
     .btn-danger { background: #fff0f0; color: #c0392b; border: 1px solid #f5d0d0; }
     .btn-danger:hover { background: #fde8e8; border-color: #e0a0a0; }
+    .btn-preview-full {
+      background: #e8f0fe; color: #1a56db; border: 1px solid #b3d4ff;
+      padding: 6px 12px; font-size: 0.78rem; border-radius: 16px; cursor: pointer;
+      margin-left: 8px; transition: var(--transition);
+    }
+    .btn-preview-full:hover { background: #d0e2ff; }
 
     .main-content { display: flex; gap: 20px; flex: 1; }
     @media (max-width: 900px) { .main-content { flex-direction: column; } }
@@ -166,9 +173,9 @@
     .result-item {
       background: var(--card-bg); border-radius: var(--radius-sm); padding: 16px 20px;
       border: 1px solid #ece3d0; box-shadow: 0 1px 4px rgba(0,0,0,0.03);
-      transition: var(--transition); cursor: pointer;
+      transition: var(--transition);
     }
-    .result-item:hover { border-color: #d4c8a8; box-shadow: var(--shadow); transform: translateX(2px); }
+    .result-item:hover { border-color: #d4c8a8; box-shadow: var(--shadow); }
     .result-item .result-source { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
     .result-item .result-file { font-weight:700; color:#5c3d0e; font-size:0.9rem; }
     .result-item .result-page { background:#f5efe0; color:#8b6914; font-size:0.72rem; padding:3px 10px; border-radius:12px; font-weight:600; }
@@ -178,9 +185,14 @@
       word-break:break-word; font-family:var(--font-mono); background:#fdfaf3;
       padding:10px 14px; border-radius:8px; border-left:3px solid #e8dcc8;
     }
-    .result-item .result-text mark { background:#fff176; color:#3d2800; padding:2px 5px; border-radius:3px; font-weight:700; }
+    .result-item .result-text mark { background: var(--pink-text-bg); color:#3d2800; padding:2px 5px; border-radius:3px; font-weight:700; }
+    .result-line-note {
+      font-size:0.78rem; color:#c71585; margin-top:6px; font-weight:500;
+    }
+    .result-actions {
+      display: flex; align-items: center; gap: 10px; margin-top: 8px;
+    }
 
-    /* 原文预览模态框 */
     .modal-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
       z-index: 9999; display: flex; align-items: center; justify-content: center;
@@ -189,7 +201,7 @@
     .modal-overlay.active { opacity: 1; pointer-events: auto; }
     .modal-content {
       background: #fff; border-radius: var(--radius); max-width: 90vw; max-height: 90vh;
-      width: 800px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+      width: 900px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
       overflow: hidden; position: relative;
     }
     .modal-header {
@@ -204,14 +216,14 @@
     .modal-close:hover { color: #c0392b; transform: scale(1.1); }
     .modal-body {
       flex: 1; overflow: auto; padding: 20px; text-align: center;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      min-height: 300px;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      min-height: 300px; position: relative;
     }
     .modal-body canvas { max-width: 100%; height: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.1); border-radius: 4px; }
     .modal-body img { max-width: 100%; max-height: 70vh; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
     .modal-footer {
       padding: 12px 20px; border-top: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: center; gap: 12px;
+      display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
     }
     .page-nav-btn {
       background: #f5efe0; border: 1px solid #d4c8a8; border-radius: 20px;
@@ -220,14 +232,18 @@
     .page-nav-btn:hover { background: #efe4cf; }
     .page-nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .page-indicator { font-weight: 600; color: #5c3d0e; }
+    .docx-line {
+      text-align: left; padding: 2px 8px; margin: 1px 0; border-radius: 4px;
+    }
+    .docx-line.highlight {
+      background-color: rgba(255, 105, 180, 0.3);
+    }
 
-    /* 嵌入提示区域 */
     .embed-tip {
       text-align: center; padding: 12px 20px; margin-top: 8px;
       background: #fdfaf3; border-radius: 20px; font-size: 0.8rem;
       color: #8b6914; border: 1px dashed #d4c8a8;
     }
-    .embed-tip a { color: var(--accent); text-decoration: underline; }
 
     .toast-container { position:fixed; top:20px; right:20px; z-index:99999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
     .toast { background:#3d3522; color:#fff; padding:12px 20px; border-radius:30px; font-size:0.85rem; box-shadow:0 8px 24px rgba(0,0,0,0.25); animation:slideInRight 0.35s, fadeOut 0.35s 2.5s forwards; pointer-events:auto; }
@@ -238,15 +254,16 @@
       .app-container { padding:10px; }
       .search-section { padding:14px 12px; gap:8px; }
       .modal-content { width:95vw; }
-      .embed-tip { font-size:0.7rem; }
     }
   </style>
 </head>
 <body>
 <div class="app-container">
   <header class="app-header">
-    <div class="logo"><span>📄</span> PDF & 图片 智能检索系统</div>
-    <p class="subtitle">导入PDF/图片 · OCR识图 · 点击结果直接查看原文页面</p>
+    <div class="logo">
+      <span>📄</span> 前辈 请放心交给我吧！ <span>🤲</span>
+    </div>
+    <p class="subtitle">PDF · Word · 图片 智能检索 · 粉色高亮定位行号</p>
   </header>
 
   <section class="search-section">
@@ -257,8 +274,7 @@
     <button class="btn btn-search" id="btnSearch">🔎 搜索</button>
     <button class="btn btn-image-search" id="btnImageSearch">📷 以图搜文</button>
     <button class="btn btn-clear" id="btnClearSearch">✕ 清空</button>
-    <!-- 新增独立窗口按钮 -->
-    <button class="btn btn-window" id="btnOpenWindow" title="在新窗口打开，方便嵌入笔记">🪟 独立窗口</button>
+    <button class="btn btn-window" id="btnOpenWindow" title="在新窗口打开">🪟 独立窗口</button>
     <input type="file" id="hiddenImageInput" accept="image/*" style="display:none;">
   </section>
 
@@ -269,8 +285,8 @@
         <div class="upload-zone" id="uploadZone">
           <span class="upload-icon">📁</span>
           <p class="upload-text">点击上传或拖拽文件到此处</p>
-          <p class="upload-hint">支持 PDF · PNG · JPG · JPEG · WEBP</p>
-          <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple>
+          <p class="upload-hint">支持 PDF · DOCX · PNG · JPG · WEBP</p>
+          <input type="file" id="fileInput" accept=".pdf,.docx,.png,.jpg,.jpeg,.webp" multiple>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <label style="font-size:0.8rem;color:#6b5e3e;font-weight:600;">OCR语言：</label>
@@ -301,18 +317,16 @@
         <span class="results-count" id="resultsCountLabel">准备就绪，请导入文件并搜索</span>
       </div>
       <div class="results-list" id="resultsList">
-        <div class="no-results"><span class="no-results-icon">🔍</span><p>导入PDF或图片后，输入关键词即可搜索</p></div>
+        <div class="no-results"><span class="no-results-icon">🔍</span><p>导入文件后，输入关键词即可搜索</p></div>
       </div>
     </main>
   </div>
 
-  <!-- 嵌入提示条 -->
   <div class="embed-tip">
-    💡 <strong>嵌入笔记软件：</strong>点击“🪟 独立窗口”按钮，复制新窗口的地址（本地路径），粘贴到“自由笔记”等软件的“嵌入网页”中。或直接将此 .html 文件拖入笔记。
+    💡 <strong>嵌入笔记：</strong>点击"🪟 独立窗口"复制网址，粘贴到笔记软件的嵌入网页功能中。| 数据完全本地处理。
   </div>
 </div>
 
-<!-- 原文预览模态框 -->
 <div class="modal-overlay" id="previewModal">
   <div class="modal-content">
     <div class="modal-header">
@@ -394,7 +408,7 @@
         if (doc.status === 'processing') { statusClass = 'status-processing'; statusText = '处理中…'; }
         else if (doc.status === 'ocr') { statusClass = 'status-ocr'; statusText = 'OCR完成'; }
         else if (doc.status === 'error') { statusClass = 'status-error'; statusText = '出错'; }
-        const icon = doc.type === 'pdf' ? '📄' : '🖼️';
+        const icon = doc.type === 'pdf' ? '📄' : (doc.type === 'docx' ? '📝' : '🖼️');
         return `<li data-doc-id="${doc.id}">
           <div class="file-info"><span class="file-icon">${icon}</span><div><div class="file-name">${escapeHtml(truncateName(doc.name,28))}</div><div class="file-meta">${doc.totalPages || 1} 页</div></div></div>
           <span class="${statusClass}">${statusText}</span>
@@ -417,7 +431,7 @@
     }
 
     function resetResultsView() {
-      $resultsList.innerHTML = '<div class="no-results"><span>🔍</span><p>导入PDF或图片后，输入关键词即可搜索</p></div>';
+      $resultsList.innerHTML = '<div class="no-results"><span>🔍</span><p>导入文件后，输入关键词即可搜索</p></div>';
       updateResultsCountLabel();
     }
 
@@ -485,6 +499,7 @@
     function getFileType(file) {
       const ext = file.name.split('.').pop().toLowerCase();
       if (ext === 'pdf') return 'pdf';
+      if (ext === 'docx') return 'docx';
       if (['png','jpg','jpeg','webp','bmp'].includes(ext)) return 'image';
       return 'unknown';
     }
@@ -509,6 +524,8 @@
         const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
         doc.data = URL.createObjectURL(blob);
         await processPDF(arrayBuffer, doc);
+      } else if (fileType === 'docx') {
+        await processWordFile(file, doc);
       } else if (fileType === 'image') {
         doc.data = URL.createObjectURL(file);
         await processImage(file, doc);
@@ -552,11 +569,34 @@
             if (text.length < 5) { text = (await page.getTextContent()).items.map(it=>it.str||'').join('').trim(); source='text'; }
           } catch(e) { source='text'; }
         }
-        if (text.replace(/\s/g,'').length > 0) doc.pages.push({ pageNum, text, source });
+        // 保留原始分行（不去掉空行，但搜索时会过滤）
+        const lines = text.split('\n');
+        if (text.replace(/\s/g,'').length > 0) doc.pages.push({ pageNum, text, source, lines });
         doc.status = 'processing';
         updateFileListUI();
       }
       if (ocrWorker) { try { await ocrWorker.terminate(); } catch(e){} }
+    }
+
+    async function processWordFile(file, doc) {
+      const arrayBuffer = await file.arrayBuffer();
+      let result;
+      try {
+        result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+      } catch (e) {
+        throw new Error('Word文档解析失败');
+      }
+      const text = result.value.trim();
+      if (!text) throw new Error('Word文档内容为空');
+      const lines = text.split('\n');
+      doc.totalPages = 1;
+      doc.pages.push({
+        pageNum: 1,
+        text: text,
+        source: 'docx',
+        lines: lines
+      });
+      doc.data = null;
     }
 
     async function processImage(file, doc) {
@@ -569,9 +609,18 @@
       try {
         const result = await worker.recognize(doc.data);
         const text = (result.data.text || '').trim();
-        doc.pages.push({ pageNum: 1, text: text || '(未识别到文字)', source: 'ocr' });
+        const lines = text.split('\n');
+        doc.pages.push({ pageNum: 1, text: text || '(未识别到文字)', source: 'ocr', lines });
       } finally { try { await worker.terminate(); } catch(e){} }
       doc.status = 'ocr';
+    }
+
+    // 获取正文起始行索引（跳过开头空白行）
+    function getBodyStartIndex(lines) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().length > 0) return i;
+      }
+      return 0;
     }
 
     function performSearch(term) {
@@ -586,20 +635,25 @@
       for (const doc of documents) {
         if (!doc.pages) continue;
         for (const page of doc.pages) {
-          const text = page.text;
-          let idx = 0;
-          while ((idx = text.toLowerCase().indexOf(lowerTerm, idx)) !== -1) {
-            const start = Math.max(0, idx-60);
-            const end = Math.min(text.length, idx+lowerTerm.length+60);
-            let context = text.slice(start, end);
-            if (start>0) context = '…'+context;
-            if (end<text.length) context += '…';
-            results.push({
-              docId: doc.id, docName: doc.name, docType: doc.type,
-              pageNum: page.pageNum, source: page.source,
-              context, matchTerm: text.slice(idx, idx+lowerTerm.length)
-            });
-            idx += lowerTerm.length;
+          const lines = page.lines || [];
+          const bodyStart = getBodyStartIndex(lines);
+          const contentLines = lines.slice(bodyStart); // 从正文第一行开始
+          for (let i = 0; i < contentLines.length; i++) {
+            const line = contentLines[i];
+            if (line.toLowerCase().includes(lowerTerm)) {
+              const actualLineNum = i + 1; // 正文第一行为第1行
+              const prevLine = i > 0 ? contentLines[i-1] : null;
+              const nextLine = i < contentLines.length-1 ? contentLines[i+1] : null;
+              let context = '';
+              if (prevLine) context += prevLine + '\n';
+              context += line;
+              if (nextLine) context += '\n' + nextLine;
+              results.push({
+                docId: doc.id, docName: doc.name, docType: doc.type,
+                pageNum: page.pageNum, lineNum: actualLineNum, source: page.source,
+                context: context.trim(), matchLine: line
+              });
+            }
           }
         }
       }
@@ -608,11 +662,20 @@
       } else {
         const maxDisplay = 200;
         const displayResults = results.slice(0, maxDisplay);
-        $resultsList.innerHTML = displayResults.map(r => {
+        $resultsList.innerHTML = displayResults.map((r, idx) => {
+          const globalIdx = idx + 1;
           const ocrBadge = r.source==='ocr' ? '<span class="result-ocr-badge">🔵 OCR</span>' : '';
-          return `<div class="result-item" data-doc-id="${r.docId}" data-page="${r.pageNum}">
-            <div class="result-source"><span class="result-file">${escapeHtml(truncateName(r.docName,40))}</span><span class="result-page">📄 第 ${r.pageNum} 页</span> ${ocrBadge}</div>
+          const note = `关键词在第 ${r.pageNum} 页第 ${r.lineNum} 行已用粉色标识标注出`;
+          return `<div class="result-item" data-doc-id="${r.docId}" data-page="${r.pageNum}" data-result-idx="${globalIdx}">
+            <div class="result-source">
+              <span class="result-file">#${globalIdx} ${escapeHtml(truncateName(r.docName,35))}</span>
+              <span class="result-page">📄 第 ${r.pageNum} 页</span> ${ocrBadge}
+            </div>
             <div class="result-text">${highlightTerm(r.context, term)}</div>
+            <div class="result-actions">
+              <span class="result-line-note">🌸 ${note}</span>
+              <button class="btn-preview-full" data-action="preview-full">🔍 预览全图</button>
+            </div>
           </div>`;
         }).join('');
         if (results.length > maxDisplay) {
@@ -628,40 +691,109 @@
     }
 
     $resultsList.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action="preview-full"]');
+      if (btn) {
+        e.stopPropagation();
+        const item = btn.closest('.result-item');
+        const docId = parseInt(item.dataset.docId);
+        const pageNum = parseInt(item.dataset.page);
+        const doc = documents.find(d => d.id === docId);
+        if (doc) openPreviewFull(doc, pageNum);
+        return;
+      }
       const item = e.target.closest('.result-item');
       if (!item) return;
       const docId = parseInt(item.dataset.docId);
       const pageNum = parseInt(item.dataset.page);
       const doc = documents.find(d => d.id === docId);
-      if (doc) openPreview(doc, pageNum);
+      if (doc) openPreviewSnippet(doc, pageNum);
     });
 
-    function openPreview(doc, pageNum) {
+    function openPreviewSnippet(doc, pageNum) {
       currentPreviewDoc = doc;
       currentPreviewPage = pageNum || 1;
-      $modalTitle.textContent = `📄 ${doc.name} - 第 ${currentPreviewPage} 页`;
+      $modalTitle.textContent = `📄 ${doc.name} - 第 ${currentPreviewPage} 页 (上下文片段)`;
       $previewModal.classList.add('active');
-      renderPreviewPage();
+      renderSnippet();
     }
 
-    async function renderPreviewPage() {
+    function openPreviewFull(doc, pageNum) {
+      currentPreviewDoc = doc;
+      currentPreviewPage = pageNum || 1;
+      $modalTitle.textContent = `📄 ${doc.name} - 第 ${currentPreviewPage} 页 (全图标注)`;
+      $previewModal.classList.add('active');
+      renderFullPage();
+    }
+
+    async function renderSnippet() {
+      const doc = currentPreviewDoc;
+      const pageNum = currentPreviewPage;
+      $modalBody.innerHTML = '<p>正在加载…</p>';
+      $prevPageBtn.disabled = true;
+      $nextPageBtn.disabled = true;
+      $pageIndicator.textContent = `第 ${pageNum} 页 / 共 ${doc.totalPages || 1} 页`;
+
+      try {
+        const page = doc.pages.find(p => p.pageNum === pageNum);
+        if (!page) { $modalBody.innerHTML = '<p>页面数据不存在</p>'; return; }
+        const lines = page.lines || [];
+        const bodyStart = getBodyStartIndex(lines);
+        const contentLines = lines.slice(bodyStart);
+        const keyword = currentSearchTerm;
+        let html = '<div style="text-align:left;font-family:var(--font-mono);padding:10px;">';
+        if (keyword) {
+          let found = false;
+          for (let i = 0; i < contentLines.length; i++) {
+            const lineText = contentLines[i];
+            if (lineText.toLowerCase().includes(keyword.toLowerCase())) {
+              const prevLine = i > 0 ? `<div style="opacity:0.7;">${escapeHtml(contentLines[i-1])}</div>` : '';
+              const nextLine = i < contentLines.length-1 ? `<div style="opacity:0.7;">${escapeHtml(contentLines[i+1])}</div>` : '';
+              html += prevLine;
+              html += `<div class="docx-line highlight">${escapeHtml(lineText)}</div>`;
+              html += nextLine;
+              found = true;
+              break;
+            }
+          }
+          if (!found) html += '<p>未找到匹配行</p>';
+        } else {
+          html += contentLines.map(l => `<div>${escapeHtml(l)}</div>`).join('');
+        }
+        html += '</div>';
+        $modalBody.innerHTML = html;
+      } catch (err) {
+        $modalBody.innerHTML = `<p>加载失败: ${err.message}</p>`;
+      }
+    }
+
+    async function renderFullPage() {
       const doc = currentPreviewDoc;
       const pageNum = currentPreviewPage;
       $modalBody.innerHTML = '<p>正在渲染页面…</p>';
       $pageIndicator.textContent = `第 ${pageNum} 页 / 共 ${doc.totalPages || 1} 页`;
       $prevPageBtn.disabled = pageNum <= 1;
       $nextPageBtn.disabled = pageNum >= (doc.totalPages || 1);
+
       try {
         if (doc.type === 'pdf' && doc.data) {
           const pdf = await pdfjsLib.getDocument({ url: doc.data }).promise;
           const page = await pdf.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1.5 });
+          const scale = 1.5;
+          const viewport = page.getViewport({ scale });
           const canvas = document.createElement('canvas');
-          canvas.width = viewport.width; canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport }).promise;
+
+          if (currentSearchTerm) {
+            await highlightWithNumbers(page, viewport, canvas, currentSearchTerm);
+          }
+
           $modalBody.innerHTML = '';
           $modalBody.appendChild(canvas);
+        } else if (doc.type === 'docx') {
+          renderWordPreviewFull(doc);
         } else if (doc.type === 'image' && doc.data) {
           const img = document.createElement('img');
           img.src = doc.data;
@@ -676,6 +808,109 @@
       }
     }
 
+    function renderWordPreviewFull(doc) {
+      const page = doc.pages[0];
+      if (!page || !page.lines) { $modalBody.innerHTML = '<p>Word文档内容为空</p>'; return; }
+      const keyword = currentSearchTerm;
+      const lines = page.lines;
+      const bodyStart = getBodyStartIndex(lines);
+      const contentLines = lines.slice(bodyStart);
+      let html = '';
+      for (let i = 0; i < contentLines.length; i++) {
+        const lineText = contentLines[i];
+        if (keyword && lineText.toLowerCase().includes(keyword.toLowerCase())) {
+          html += `<div class="docx-line highlight">${escapeHtml(lineText)}</div>`;
+        } else {
+          html += `<div class="docx-line">${escapeHtml(lineText)}</div>`;
+        }
+      }
+      $modalBody.innerHTML = `<div style="width:100%;">${html}</div>`;
+    }
+
+    async function highlightWithNumbers(page, viewport, canvas, keyword) {
+      try {
+        const textContent = await page.getTextContent();
+        const items = textContent.items;
+        const scale = viewport.scale;
+        const keywordLower = keyword.toLowerCase();
+        const rows = buildRows(items);
+        const matches = findMatchingRows(rows, keywordLower);
+
+        if (matches.length === 0) return;
+
+        const ctx = canvas.getContext('2d');
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 105, 180, 0.35)';
+        ctx.strokeStyle = '#c71585';
+        ctx.lineWidth = 1;
+        drawRowHighlights(ctx, matches, viewport, scale);
+
+        // 画数字圆圈
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let i = 0; i < matches.length; i++) {
+          const match = matches[i];
+          const firstItem = match.items[0];
+          const tx = firstItem.transform[4];
+          const ty = firstItem.transform[5];
+          const canvasX = tx * scale - 15;
+          const canvasY = (viewport.height - ty * scale) - 10;
+          ctx.fillStyle = '#ff1493';
+          ctx.beginPath();
+          ctx.arc(canvasX, canvasY, 10, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.fillText(i + 1, canvasX, canvasY);
+        }
+        ctx.restore();
+      } catch (err) { /* ignore */ }
+    }
+
+    function buildRows(items) {
+      const rows = [];
+      let currentRow = [];
+      let currentY = null;
+      const sorted = [...items].sort((a, b) => {
+        const yDiff = b.transform[5] - a.transform[5];
+        if (Math.abs(yDiff) < 2) return a.transform[4] - b.transform[4];
+        return yDiff;
+      });
+      for (const item of sorted) {
+        const y = item.transform[5];
+        if (currentY === null || Math.abs(y - currentY) > 2) {
+          if (currentRow.length > 0) rows.push(currentRow);
+          currentRow = [item];
+          currentY = y;
+        } else { currentRow.push(item); }
+      }
+      if (currentRow.length > 0) rows.push(currentRow);
+      return rows;
+    }
+
+    function findMatchingRows(rows, keywordLower) {
+      const matches = [];
+      for (let i = 0; i < rows.length; i++) {
+        const rowText = rows[i].map(it => it.str).join('');
+        if (rowText.toLowerCase().includes(keywordLower)) {
+          matches.push({ rowIndex: i, items: rows[i] });
+        }
+      }
+      return matches;
+    }
+
+    function drawRowHighlights(ctx, matches, viewport, scale) {
+      for (const match of matches) {
+        for (const item of match.items) {
+          const tx = item.transform[4], ty = item.transform[5];
+          const w = item.width * scale;
+          const h = (item.height || 12) * scale * 0.8;
+          ctx.fillRect(tx * scale, (viewport.height - ty * scale) - h, w, h);
+          ctx.strokeRect(tx * scale, (viewport.height - ty * scale) - h, w, h);
+        }
+      }
+    }
+
     function closePreview() {
       $previewModal.classList.remove('active');
       currentPreviewDoc = null;
@@ -686,28 +921,24 @@
     $prevPageBtn.addEventListener('click', () => {
       if (currentPreviewDoc && currentPreviewPage > 1) {
         currentPreviewPage--;
-        $modalTitle.textContent = `📄 ${currentPreviewDoc.name} - 第 ${currentPreviewPage} 页`;
-        renderPreviewPage();
+        renderFullPage();
       }
     });
     $nextPageBtn.addEventListener('click', () => {
       if (currentPreviewDoc && currentPreviewPage < (currentPreviewDoc.totalPages || 1)) {
         currentPreviewPage++;
-        $modalTitle.textContent = `📄 ${currentPreviewDoc.name} - 第 ${currentPreviewPage} 页`;
-        renderPreviewPage();
+        renderFullPage();
       }
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && $previewModal.classList.contains('active')) closePreview();
     });
 
-    // 独立窗口按钮
     $btnOpenWindow.addEventListener('click', () => {
       window.open(window.location.href, '_blank', 'width=1200,height=800');
       showToast('已在新窗口打开，可复制地址栏路径嵌入笔记', 'success');
     });
 
-    // 以图搜文
     async function imageToSearch(file) {
       if (!file) return;
       showToast('正在识别图片文字…', 'info');
@@ -728,7 +959,6 @@
       } finally { try { await worker.terminate(); } catch(e){} }
     }
 
-    // 其他事件绑定
     $btnSearch.addEventListener('click', () => {
       const term = $searchInput.value.trim();
       if (!term) showToast('请输入关键词','warning');
@@ -736,59 +966,31 @@
       else performSearch(term);
     });
     $searchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const term = $searchInput.value.trim();
-        if (term && documents.length > 0) performSearch(term);
-      }
+      if (e.key === 'Enter') { e.preventDefault(); const t = $searchInput.value.trim(); if (t && documents.length > 0) performSearch(t); }
     });
     let searchTimer;
     $searchInput.addEventListener('input', () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
-        const term = $searchInput.value.trim();
-        if (term && documents.length > 0) performSearch(term);
-        else if (!term && documents.length > 0) {
-          currentSearchTerm = '';
-          $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>';
-        }
+        const t = $searchInput.value.trim();
+        if (t && documents.length > 0) performSearch(t);
+        else if (!t && documents.length > 0) { currentSearchTerm = ''; $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>'; }
       }, 300);
     });
-    $btnClearSearch.addEventListener('click', () => {
-      $searchInput.value = '';
-      currentSearchTerm = '';
-      if (documents.length > 0) $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>';
-      else resetResultsView();
-    });
+    $btnClearSearch.addEventListener('click', () => { $searchInput.value = ''; currentSearchTerm = ''; if (documents.length > 0) $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>'; else resetResultsView(); });
     $btnImageSearch.addEventListener('click', () => $hiddenImageInput.click());
-    $hiddenImageInput.addEventListener('change', (e) => {
-      if (e.target.files[0]) { imageToSearch(e.target.files[0]); $hiddenImageInput.value = ''; }
-    });
-    $fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length) { processFiles(e.target.files); $fileInput.value = ''; }
-    });
+    $hiddenImageInput.addEventListener('change', (e) => { if (e.target.files[0]) { imageToSearch(e.target.files[0]); $hiddenImageInput.value = ''; } });
+    $fileInput.addEventListener('change', (e) => { if (e.target.files.length) { processFiles(e.target.files); $fileInput.value = ''; } });
     $uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); $uploadZone.classList.add('drag-over'); });
     $uploadZone.addEventListener('dragleave', () => $uploadZone.classList.remove('drag-over'));
-    $uploadZone.addEventListener('drop', (e) => {
-      e.preventDefault(); $uploadZone.classList.remove('drag-over');
-      if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files);
-    });
+    $uploadZone.addEventListener('drop', (e) => { e.preventDefault(); $uploadZone.classList.remove('drag-over'); if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files); });
     document.body.addEventListener('dragover', (e) => { e.preventDefault(); $uploadZone.classList.add('drag-over'); });
-    document.body.addEventListener('dragleave', (e) => {
-      if (!e.relatedTarget || e.relatedTarget === document.documentElement) $uploadZone.classList.remove('drag-over');
-    });
-    document.body.addEventListener('drop', (e) => {
-      e.preventDefault(); $uploadZone.classList.remove('drag-over');
-      if (e.dataTransfer.files.length && !$uploadZone.contains(e.target)) processFiles(e.dataTransfer.files);
-    });
+    document.body.addEventListener('dragleave', (e) => { if (!e.relatedTarget || e.relatedTarget === document.documentElement) $uploadZone.classList.remove('drag-over'); });
+    document.body.addEventListener('drop', (e) => { e.preventDefault(); $uploadZone.classList.remove('drag-over'); if (e.dataTransfer.files.length && !$uploadZone.contains(e.target)) processFiles(e.dataTransfer.files); });
     $btnClearAll.addEventListener('click', clearAllDocuments);
-    $ocrLangSelect.addEventListener('change', () => {
-      showToast(`OCR语言已切换（新导入文件生效）`, 'info');
-    });
+    $ocrLangSelect.addEventListener('change', () => showToast(`OCR语言已切换（新导入文件生效）`, 'info'));
     document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey && e.key === 'k') || (e.key === '/' && !e.ctrlKey && document.activeElement !== $searchInput)) {
-        e.preventDefault(); $searchInput.focus(); $searchInput.select();
-      }
+      if ((e.ctrlKey && e.key === 'k') || (e.key === '/' && !e.ctrlKey && document.activeElement !== $searchInput)) { e.preventDefault(); $searchInput.focus(); $searchInput.select(); }
     });
 
     updateFileListUI();
