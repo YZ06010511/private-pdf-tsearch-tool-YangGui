@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>📄 PDF & 图片 智能检索 · 点击定位原文</title>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
+  </script>
+  <!-- Tesseract.js (OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js">
+  </script>
+
+  <style>
+    :root {
+      --bg-yellow: #fef9e7;
+      --card-bg: #ffffff;
+      --text-primary: #3d3522;
+      --text-secondary: #6b5e3e;
+      --accent: #d4a017;
+      --accent-hover: #b8860b;
+      --border: #e8dcc8;
+      --shadow: 0 2px 12px rgba(100, 70, 20, 0.08);
+      --shadow-lg: 0 8px 32px rgba(100, 70, 20, 0.15);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+      background-color: var(--bg-yellow);
+      background-image:
+        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.9) 1.8px, transparent 1.8px),
+        radial-gradient(circle at 65% 70%, rgba(255, 255, 255, 0.7) 1.2px, transparent 1.2px),
+        radial-gradient(circle at 85% 15%, rgba(255, 255, 255, 0.75) 2px, transparent 2px),
+        radial-gradient(circle at 40% 85%, rgba(255, 255, 255, 0.65) 1.4px, transparent 1.4px);
+      background-size: 28px 28px, 36px 36px, 44px 44px, 32px 32px;
+      background-position: 0 0, 10px 8px, 18px 4px, 6px 14px;
+      min-height: 100vh;
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d4c8a8; border-radius: 3px; }
+
+    .app-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 24px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-height: 100vh;
+    }
+
+    .app-header { text-align: center; padding: 10px 0 0; }
+    .app-header .logo {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-size: 1.8rem; font-weight: 700; color: #5c3d0e; letter-spacing: -0.02em;
+    }
+    .app-header .subtitle { font-size: 0.9rem; color: var(--text-secondary); margin-top: 2px; }
+
+    /* 搜索栏 */
+    .search-section {
+      background: var(--card-bg); border-radius: var(--radius); padding: 20px 24px;
+      box-shadow: var(--shadow); border: 1px solid var(--border);
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      position: sticky; top: 16px; z-index: 100;
+      backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.92);
+    }
+    .search-input-wrapper { flex: 1; min-width: 240px; position: relative; }
+    .search-input-wrapper .search-icon {
+      position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+      font-size: 1.2rem; color: #b8a88a; pointer-events: none; transition: var(--transition);
+    }
+    .search-input {
+      width: 100%; padding: 14px 18px 14px 46px; font-size: 1rem;
+      border: 2px solid var(--border); border-radius: 50px; background: #fdfaf3;
+      color: var(--text-primary); outline: none; transition: var(--transition);
+    }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(212,160,23,0.08); background: #fffef9; }
+    .search-input:focus~.search-icon { color: var(--accent); }
+
+    .btn {
+      padding: 12px 22px; font-size: 0.95rem; font-weight: 600; border: none;
+      border-radius: 50px; cursor: pointer; transition: var(--transition);
+      display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+      letter-spacing: 0.03em; user-select: none;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn-search { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(212,160,23,0.3); }
+    .btn-search:hover { background: var(--accent-hover); box-shadow: 0 6px 20px rgba(184,134,11,0.35); transform: translateY(-1px); }
+    .btn-image-search { background: #f5efe0; color: #5c3d0e; border: 2px dashed #d4c8a8; }
+    .btn-image-search:hover { background: #efe4cf; border-color: var(--accent); }
+    .btn-clear { background: transparent; color: #9a8b6e; padding: 8px 14px; font-size: 0.85rem; border: 1px solid transparent; }
+    .btn-clear:hover { background: #f5efe0; border-color: #e0d4b8; color: #5c3d0e; }
+    .btn-window {
+      background: #f0f4ff; color: #2c3e50; border: 1px solid #c8d6e5;
+    }
+    .btn-window:hover { background: #e3e9ff; border-color: #8ca0b3; }
+    .btn-small { padding: 7px 14px; font-size: 0.8rem; border-radius: 20px; }
+    .btn-danger { background: #fff0f0; color: #c0392b; border: 1px solid #f5d0d0; }
+    .btn-danger:hover { background: #fde8e8; border-color: #e0a0a0; }
+
+    .main-content { display: flex; gap: 20px; flex: 1; }
+    @media (max-width: 900px) { .main-content { flex-direction: column; } }
+
+    .sidebar { width: 380px; min-width: 320px; display: flex; flex-direction: column; gap: 16px; flex-shrink: 0; }
+    @media (max-width: 900px) { .sidebar { width: 100%; min-width: 0; } }
+
+    .card {
+      background: var(--card-bg); border-radius: var(--radius); padding: 20px;
+      box-shadow: var(--shadow); border: 1px solid var(--border); transition: var(--transition);
+    }
+    .card-header {
+      font-weight: 700; font-size: 1rem; color: #5c3d0e; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .badge { background: #f5efe0; color: #8b6914; font-size: 0.75rem; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+
+    .upload-zone {
+      border: 2px dashed #d4c8a8; border-radius: var(--radius-sm); padding: 28px 20px;
+      text-align: center; cursor: pointer; transition: var(--transition); background: #fdfaf3;
+      position: relative; overflow: hidden;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: #fffef7; box-shadow: 0 0 0 6px rgba(212,160,23,0.05); }
+    .upload-zone .upload-icon { font-size: 3rem; display: block; margin-bottom: 8px; }
+    .upload-zone .upload-text { font-weight: 600; color: #5c3d0e; font-size: 0.95rem; }
+    .upload-zone .upload-hint { font-size: 0.78rem; color: #a89878; margin-top: 4px; }
+    .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+    .file-list { list-style: none; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .file-list li {
+      background: #fdfaf3; border-radius: var(--radius-sm); padding: 12px 14px;
+      border: 1px solid #ece3d0; display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; transition: var(--transition); flex-wrap: wrap;
+    }
+    .file-list li:hover { border-color: #d4c8a8; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .file-list .file-info { flex: 1; min-width: 140px; display: flex; align-items: center; gap: 10px; }
+    .file-list .file-icon { font-size: 1.6rem; }
+    .file-list .file-name { font-weight: 600; font-size: 0.9rem; color: #3d3522; word-break: break-all; }
+    .file-list .file-meta { font-size: 0.72rem; color: #a89878; }
+    .status-ready { background: #e8f5e9; color: #2e7d32; padding: 4px 10px; border-radius: 14px; font-size: 0.7rem; font-weight: 600; }
+    .status-processing { background: #fff8e1; color: #e67e00; animation: pulse 1.2s infinite; }
+    .status-ocr { background: #e3f2fd; color: #1565c0; }
+    .status-error { background: #fce4ec; color: #c62828; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.55;} }
+
+    .progress-bar-wrapper { margin-top:8px; width:100%; background:#e8dcc8; border-radius:10px; height:6px; overflow:hidden; }
+    .progress-bar-fill { height:100%; background:linear-gradient(90deg,#d4a017,#e6b830); border-radius:10px; width:0%; transition: width 0.3s; }
+
+    .results-panel { flex:1; display:flex; flex-direction:column; gap:16px; min-width:0; }
+    .results-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    .results-count { font-weight:700; color:#5c3d0e; font-size:1rem; }
+    .highlight-num { color:var(--accent); font-size:1.3rem; }
+
+    .results-list { display:flex; flex-direction:column; gap:12px; max-height:65vh; overflow-y:auto; padding-right:4px; }
+
+    .result-item {
+      background: var(--card-bg); border-radius: var(--radius-sm); padding: 16px 20px;
+      border: 1px solid #ece3d0; box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+      transition: var(--transition); cursor: pointer;
+    }
+    .result-item:hover { border-color: #d4c8a8; box-shadow: var(--shadow); transform: translateX(2px); }
+    .result-item .result-source { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    .result-item .result-file { font-weight:700; color:#5c3d0e; font-size:0.9rem; }
+    .result-item .result-page { background:#f5efe0; color:#8b6914; font-size:0.72rem; padding:3px 10px; border-radius:12px; font-weight:600; }
+    .result-item .result-ocr-badge { background:#e3f2fd; color:#1565c0; font-size:0.68rem; padding:2px 8px; border-radius:10px; }
+    .result-item .result-text {
+      font-size:0.9rem; color:var(--text-secondary); line-height:1.7;
+      word-break:break-word; font-family:var(--font-mono); background:#fdfaf3;
+      padding:10px 14px; border-radius:8px; border-left:3px solid #e8dcc8;
+    }
+    .result-item .result-text mark { background:#fff176; color:#3d2800; padding:2px 5px; border-radius:3px; font-weight:700; }
+
+    /* 原文预览模态框 */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+      z-index: 9999; display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-content {
+      background: #fff; border-radius: var(--radius); max-width: 90vw; max-height: 90vh;
+      width: 800px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+      overflow: hidden; position: relative;
+    }
+    .modal-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      font-weight: 700; color: #5c3d0e;
+    }
+    .modal-close {
+      background: none; border: none; font-size: 1.5rem; cursor: pointer;
+      color: #9a8b6e; transition: var(--transition); line-height: 1;
+    }
+    .modal-close:hover { color: #c0392b; transform: scale(1.1); }
+    .modal-body {
+      flex: 1; overflow: auto; padding: 20px; text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 300px;
+    }
+    .modal-body canvas { max-width: 100%; height: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.1); border-radius: 4px; }
+    .modal-body img { max-width: 100%; max-height: 70vh; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+    .modal-footer {
+      padding: 12px 20px; border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+    }
+    .page-nav-btn {
+      background: #f5efe0; border: 1px solid #d4c8a8; border-radius: 20px;
+      padding: 8px 16px; font-size: 0.9rem; cursor: pointer; transition: var(--transition);
+    }
+    .page-nav-btn:hover { background: #efe4cf; }
+    .page-nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .page-indicator { font-weight: 600; color: #5c3d0e; }
+
+    /* 嵌入提示区域 */
+    .embed-tip {
+      text-align: center; padding: 12px 20px; margin-top: 8px;
+      background: #fdfaf3; border-radius: 20px; font-size: 0.8rem;
+      color: #8b6914; border: 1px dashed #d4c8a8;
+    }
+    .embed-tip a { color: var(--accent); text-decoration: underline; }
+
+    .toast-container { position:fixed; top:20px; right:20px; z-index:99999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+    .toast { background:#3d3522; color:#fff; padding:12px 20px; border-radius:30px; font-size:0.85rem; box-shadow:0 8px 24px rgba(0,0,0,0.25); animation:slideInRight 0.35s, fadeOut 0.35s 2.5s forwards; pointer-events:auto; }
+    @keyframes slideInRight { from{transform:translateX(120%);opacity:0;} to{transform:translateX(0);opacity:1;} }
+    @keyframes fadeOut { from{opacity:1;} to{opacity:0; transform:translateY(-10px);} }
+
+    @media (max-width:600px) {
+      .app-container { padding:10px; }
+      .search-section { padding:14px 12px; gap:8px; }
+      .modal-content { width:95vw; }
+      .embed-tip { font-size:0.7rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <header class="app-header">
+    <div class="logo"><span>📄</span> PDF & 图片 智能检索系统</div>
+    <p class="subtitle">导入PDF/图片 · OCR识图 · 点击结果直接查看原文页面</p>
+  </header>
+
+  <section class="search-section">
+    <div class="search-input-wrapper">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="searchInput" placeholder="输入关键词搜索…" autocomplete="off">
+    </div>
+    <button class="btn btn-search" id="btnSearch">🔎 搜索</button>
+    <button class="btn btn-image-search" id="btnImageSearch">📷 以图搜文</button>
+    <button class="btn btn-clear" id="btnClearSearch">✕ 清空</button>
+    <!-- 新增独立窗口按钮 -->
+    <button class="btn btn-window" id="btnOpenWindow" title="在新窗口打开，方便嵌入笔记">🪟 独立窗口</button>
+    <input type="file" id="hiddenImageInput" accept="image/*" style="display:none;">
+  </section>
+
+  <div class="main-content">
+    <aside class="sidebar">
+      <div class="card">
+        <div class="card-header">📥 导入文件 <span class="badge" id="fileCountBadge">0 个文件</span></div>
+        <div class="upload-zone" id="uploadZone">
+          <span class="upload-icon">📁</span>
+          <p class="upload-text">点击上传或拖拽文件到此处</p>
+          <p class="upload-hint">支持 PDF · PNG · JPG · JPEG · WEBP</p>
+          <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <label style="font-size:0.8rem;color:#6b5e3e;font-weight:600;">OCR语言：</label>
+          <select id="ocrLangSelect" style="padding:6px 10px;border-radius:16px;border:1px solid #d4c8a8;background:#fdfaf3;">
+            <option value="eng">English</option>
+            <option value="chi_sim">中文简体</option>
+            <option value="chi_sim+eng" selected>中文 + 英文</option>
+            <option value="chi_tra">中文繁体</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">📋 已导入文档 <span class="badge" id="listCountBadge">0</span></div>
+        <ul class="file-list" id="fileList">
+          <li class="empty-state"><span class="empty-icon">📭</span><p>还没有导入任何文件</p></li>
+        </ul>
+        <div id="globalProgress" style="display:none;margin-top:8px;">
+          <div class="progress-bar-wrapper"><div class="progress-bar-fill" id="globalProgressFill"></div></div>
+          <p style="font-size:0.7rem;color:#a89878;text-align:center;" id="globalProgressText"></p>
+        </div>
+        <button class="btn btn-danger btn-small" id="btnClearAll" style="margin-top:10px;width:100%;justify-content:center;display:none;">🗑️ 清空所有文档</button>
+      </div>
+    </aside>
+
+    <main class="results-panel">
+      <div class="results-header">
+        <span class="results-count" id="resultsCountLabel">准备就绪，请导入文件并搜索</span>
+      </div>
+      <div class="results-list" id="resultsList">
+        <div class="no-results"><span class="no-results-icon">🔍</span><p>导入PDF或图片后，输入关键词即可搜索</p></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 嵌入提示条 -->
+  <div class="embed-tip">
+    💡 <strong>嵌入笔记软件：</strong>点击“🪟 独立窗口”按钮，复制新窗口的地址（本地路径），粘贴到“自由笔记”等软件的“嵌入网页”中。或直接将此 .html 文件拖入笔记。
+  </div>
+</div>
+
+<!-- 原文预览模态框 -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <span id="modalTitle">📄 原文预览</span>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody">
+      <p>加载中…</p>
+    </div>
+    <div class="modal-footer" id="modalFooter">
+      <button class="page-nav-btn" id="prevPageBtn" disabled>◀ 上一页</button>
+      <span class="page-indicator" id="pageIndicator">第 1 页</span>
+      <button class="page-nav-btn" id="nextPageBtn" disabled>下一页 ▶</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  (function() {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const documents = [];
+    let docIdCounter = 0;
+    let currentSearchTerm = '';
+    let isProcessing = false;
+    let currentPreviewDoc = null;
+    let currentPreviewPage = 1;
+
+    const $searchInput = document.getElementById('searchInput');
+    const $btnSearch = document.getElementById('btnSearch');
+    const $btnImageSearch = document.getElementById('btnImageSearch');
+    const $btnClearSearch = document.getElementById('btnClearSearch');
+    const $btnOpenWindow = document.getElementById('btnOpenWindow');
+    const $hiddenImageInput = document.getElementById('hiddenImageInput');
+    const $fileInput = document.getElementById('fileInput');
+    const $uploadZone = document.getElementById('uploadZone');
+    const $fileList = document.getElementById('fileList');
+    const $resultsList = document.getElementById('resultsList');
+    const $resultsCountLabel = document.getElementById('resultsCountLabel');
+    const $fileCountBadge = document.getElementById('fileCountBadge');
+    const $listCountBadge = document.getElementById('listCountBadge');
+    const $btnClearAll = document.getElementById('btnClearAll');
+    const $globalProgress = document.getElementById('globalProgress');
+    const $globalProgressFill = document.getElementById('globalProgressFill');
+    const $globalProgressText = document.getElementById('globalProgressText');
+    const $ocrLangSelect = document.getElementById('ocrLangSelect');
+    const $toastContainer = document.getElementById('toastContainer');
+
+    const $previewModal = document.getElementById('previewModal');
+    const $modalTitle = document.getElementById('modalTitle');
+    const $modalBody = document.getElementById('modalBody');
+    const $modalClose = document.getElementById('modalClose');
+    const $prevPageBtn = document.getElementById('prevPageBtn');
+    const $nextPageBtn = document.getElementById('nextPageBtn');
+    const $pageIndicator = document.getElementById('pageIndicator');
+
+    function showToast(msg, type='info') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = msg;
+      $toastContainer.appendChild(toast);
+      setTimeout(() => { if(toast.parentNode) toast.remove(); }, 3000);
+    }
+
+    function updateFileListUI() {
+      const count = documents.length;
+      $fileCountBadge.textContent = `${count} 个文件`;
+      $listCountBadge.textContent = count;
+      $btnClearAll.style.display = count > 0 ? 'flex' : 'none';
+      if (count === 0) {
+        $fileList.innerHTML = '<li class="empty-state"><span>📭</span><p>还没有导入任何文件</p></li>';
+        resetResultsView();
+        return;
+      }
+      $fileList.innerHTML = documents.map(doc => {
+        let statusClass = 'status-ready', statusText = '已就绪';
+        if (doc.status === 'processing') { statusClass = 'status-processing'; statusText = '处理中…'; }
+        else if (doc.status === 'ocr') { statusClass = 'status-ocr'; statusText = 'OCR完成'; }
+        else if (doc.status === 'error') { statusClass = 'status-error'; statusText = '出错'; }
+        const icon = doc.type === 'pdf' ? '📄' : '🖼️';
+        return `<li data-doc-id="${doc.id}">
+          <div class="file-info"><span class="file-icon">${icon}</span><div><div class="file-name">${escapeHtml(truncateName(doc.name,28))}</div><div class="file-meta">${doc.totalPages || 1} 页</div></div></div>
+          <span class="${statusClass}">${statusText}</span>
+          <button class="btn btn-danger btn-small" data-action="remove" data-doc-id="${doc.id}">✕</button>
+        </li>`;
+      }).join('');
+      $fileList.querySelectorAll('[data-action="remove"]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeDocument(parseInt(btn.dataset.docId));
+        });
+      });
+      updateResultsCountLabel();
+    }
+
+    function updateResultsCountLabel() {
+      const totalPages = documents.reduce((s,d) => s + (d.pages ? d.pages.length : 0), 0);
+      if (documents.length === 0) $resultsCountLabel.textContent = '准备就绪，请导入文件并搜索';
+      else $resultsCountLabel.innerHTML = `已索引 <span class="highlight-num">${documents.length}</span> 个文档，<span class="highlight-num">${totalPages}</span> 页`;
+    }
+
+    function resetResultsView() {
+      $resultsList.innerHTML = '<div class="no-results"><span>🔍</span><p>导入PDF或图片后，输入关键词即可搜索</p></div>';
+      updateResultsCountLabel();
+    }
+
+    function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
+    function truncateName(name, max) { return name.length > max ? name.slice(0,max-3)+'...' : name; }
+
+    function releaseDocData(doc) {
+      if (doc.data && typeof doc.data === 'string' && doc.data.startsWith('blob:')) {
+        URL.revokeObjectURL(doc.data);
+      }
+    }
+
+    function removeDocument(docId) {
+      const idx = documents.findIndex(d => d.id === docId);
+      if (idx >= 0) {
+        releaseDocData(documents[idx]);
+        documents.splice(idx, 1);
+        updateFileListUI();
+        if (currentSearchTerm.trim()) performSearch(currentSearchTerm.trim());
+        else resetResultsView();
+        showToast('已移除文档');
+      }
+    }
+
+    function clearAllDocuments() {
+      if (documents.length === 0) return;
+      if (confirm(`确定清空全部 ${documents.length} 个文档吗？`)) {
+        documents.forEach(d => releaseDocData(d));
+        documents.length = 0;
+        updateFileListUI();
+        resetResultsView();
+        showToast('已清空所有文档', 'warning');
+      }
+    }
+
+    async function processFiles(files) {
+      if (isProcessing) { showToast('正在处理中，请稍候', 'warning'); return; }
+      isProcessing = true;
+      const fileArray = Array.from(files);
+      let success = 0, fail = 0;
+      $globalProgress.style.display = 'block';
+      for (let i = 0; i < fileArray.length; i++) {
+        const file = fileArray[i];
+        $globalProgressFill.style.width = `${Math.round((i/fileArray.length)*100)}%`;
+        $globalProgressText.textContent = `处理中 (${i+1}/${fileArray.length}): ${file.name}`;
+        try {
+          await processSingleFile(file);
+          success++;
+        } catch (err) {
+          console.error(err);
+          fail++;
+          documents.push({ id: ++docIdCounter, name: file.name, type: getFileType(file), pages: [], totalPages:0, status:'error', data: null });
+          showToast(`处理失败: ${file.name}`, 'error');
+        }
+        updateFileListUI();
+      }
+      $globalProgressFill.style.width = '100%';
+      $globalProgressText.textContent = `完成！成功 ${success} 个${fail>0?`，失败 ${fail} 个`:''}`;
+      setTimeout(() => { $globalProgress.style.display = 'none'; }, 2000);
+      if (success > 0) showToast(`成功导入 ${success} 个文件`, 'success');
+      if (currentSearchTerm.trim()) performSearch(currentSearchTerm.trim());
+      isProcessing = false;
+    }
+
+    function getFileType(file) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === 'pdf') return 'pdf';
+      if (['png','jpg','jpeg','webp','bmp'].includes(ext)) return 'image';
+      return 'unknown';
+    }
+
+    async function processSingleFile(file) {
+      const fileType = getFileType(file);
+      if (fileType === 'unknown') throw new Error('不支持的文件格式');
+      const doc = {
+        id: ++docIdCounter,
+        name: file.name,
+        type: fileType,
+        pages: [],
+        totalPages: 0,
+        status: 'processing',
+        data: null
+      };
+      documents.push(doc);
+      updateFileListUI();
+
+      if (fileType === 'pdf') {
+        const arrayBuffer = await file.arrayBuffer();
+        const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+        doc.data = URL.createObjectURL(blob);
+        await processPDF(arrayBuffer, doc);
+      } else if (fileType === 'image') {
+        doc.data = URL.createObjectURL(file);
+        await processImage(file, doc);
+      }
+      doc.processed = true;
+      doc.status = doc.pages.some(p => p.source === 'ocr') ? 'ocr' : 'ready';
+      updateFileListUI();
+    }
+
+    async function processPDF(arrayBuffer, doc) {
+      let pdf;
+      try { pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise; } catch(e) { throw new Error('PDF解析失败'); }
+      doc.totalPages = pdf.numPages;
+      updateFileListUI();
+      const ocrLang = $ocrLangSelect.value || 'chi_sim+eng';
+      let ocrWorker = null;
+      let needsOCR = false;
+      for (let p=1; p<=Math.min(3, doc.totalPages); p++) {
+        const page = await pdf.getPage(p);
+        const text = (await page.getTextContent()).items.map(it => it.str||'').join('').trim();
+        if (text.replace(/\s/g,'').length < 30) { needsOCR = true; break; }
+      }
+      if (needsOCR) {
+        try { ocrWorker = await Tesseract.createWorker(ocrLang); showToast('已启用OCR处理扫描件', 'info'); }
+        catch(e) { ocrWorker = null; }
+      }
+      for (let pageNum=1; pageNum<=doc.totalPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        let text = (await page.getTextContent()).items.map(it => it.str||'').join('').trim();
+        let source = 'text';
+        if (text.replace(/\s/g,'').length < 30 && ocrWorker) {
+          source = 'ocr';
+          try {
+            const viewport = page.getViewport({ scale: 1.8 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width; canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const ocrRes = await ocrWorker.recognize(canvas);
+            text = (ocrRes.data.text || '').trim();
+            if (text.length < 5) { text = (await page.getTextContent()).items.map(it=>it.str||'').join('').trim(); source='text'; }
+          } catch(e) { source='text'; }
+        }
+        if (text.replace(/\s/g,'').length > 0) doc.pages.push({ pageNum, text, source });
+        doc.status = 'processing';
+        updateFileListUI();
+      }
+      if (ocrWorker) { try { await ocrWorker.terminate(); } catch(e){} }
+    }
+
+    async function processImage(file, doc) {
+      const ocrLang = $ocrLangSelect.value || 'chi_sim+eng';
+      doc.totalPages = 1;
+      updateFileListUI();
+      doc.status = 'processing';
+      let worker;
+      try { worker = await Tesseract.createWorker(ocrLang); } catch(e) { throw new Error('OCR引擎启动失败'); }
+      try {
+        const result = await worker.recognize(doc.data);
+        const text = (result.data.text || '').trim();
+        doc.pages.push({ pageNum: 1, text: text || '(未识别到文字)', source: 'ocr' });
+      } finally { try { await worker.terminate(); } catch(e){} }
+      doc.status = 'ocr';
+    }
+
+    function performSearch(term) {
+      currentSearchTerm = term;
+      if (!term || documents.length === 0) {
+        if (documents.length === 0) resetResultsView();
+        else $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词开始搜索</p></div>';
+        return;
+      }
+      const results = [];
+      const lowerTerm = term.toLowerCase();
+      for (const doc of documents) {
+        if (!doc.pages) continue;
+        for (const page of doc.pages) {
+          const text = page.text;
+          let idx = 0;
+          while ((idx = text.toLowerCase().indexOf(lowerTerm, idx)) !== -1) {
+            const start = Math.max(0, idx-60);
+            const end = Math.min(text.length, idx+lowerTerm.length+60);
+            let context = text.slice(start, end);
+            if (start>0) context = '…'+context;
+            if (end<text.length) context += '…';
+            results.push({
+              docId: doc.id, docName: doc.name, docType: doc.type,
+              pageNum: page.pageNum, source: page.source,
+              context, matchTerm: text.slice(idx, idx+lowerTerm.length)
+            });
+            idx += lowerTerm.length;
+          }
+        }
+      }
+      if (results.length === 0) {
+        $resultsList.innerHTML = `<div class="no-results"><span>😕</span><p>未找到 "<strong>${escapeHtml(term)}</strong>" 的内容</p></div>`;
+      } else {
+        const maxDisplay = 200;
+        const displayResults = results.slice(0, maxDisplay);
+        $resultsList.innerHTML = displayResults.map(r => {
+          const ocrBadge = r.source==='ocr' ? '<span class="result-ocr-badge">🔵 OCR</span>' : '';
+          return `<div class="result-item" data-doc-id="${r.docId}" data-page="${r.pageNum}">
+            <div class="result-source"><span class="result-file">${escapeHtml(truncateName(r.docName,40))}</span><span class="result-page">📄 第 ${r.pageNum} 页</span> ${ocrBadge}</div>
+            <div class="result-text">${highlightTerm(r.context, term)}</div>
+          </div>`;
+        }).join('');
+        if (results.length > maxDisplay) {
+          $resultsList.innerHTML += `<p style="text-align:center;color:#a89878;">… 还有 ${results.length - maxDisplay} 条匹配</p>`;
+        }
+      }
+      $resultsCountLabel.innerHTML = `搜索 "<strong>${escapeHtml(term)}</strong>" — <span class="highlight-num">${results.length}</span> 条`;
+    }
+
+    function highlightTerm(context, term) {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return escapeHtml(context).replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
+    }
+
+    $resultsList.addEventListener('click', (e) => {
+      const item = e.target.closest('.result-item');
+      if (!item) return;
+      const docId = parseInt(item.dataset.docId);
+      const pageNum = parseInt(item.dataset.page);
+      const doc = documents.find(d => d.id === docId);
+      if (doc) openPreview(doc, pageNum);
+    });
+
+    function openPreview(doc, pageNum) {
+      currentPreviewDoc = doc;
+      currentPreviewPage = pageNum || 1;
+      $modalTitle.textContent = `📄 ${doc.name} - 第 ${currentPreviewPage} 页`;
+      $previewModal.classList.add('active');
+      renderPreviewPage();
+    }
+
+    async function renderPreviewPage() {
+      const doc = currentPreviewDoc;
+      const pageNum = currentPreviewPage;
+      $modalBody.innerHTML = '<p>正在渲染页面…</p>';
+      $pageIndicator.textContent = `第 ${pageNum} 页 / 共 ${doc.totalPages || 1} 页`;
+      $prevPageBtn.disabled = pageNum <= 1;
+      $nextPageBtn.disabled = pageNum >= (doc.totalPages || 1);
+      try {
+        if (doc.type === 'pdf' && doc.data) {
+          const pdf = await pdfjsLib.getDocument({ url: doc.data }).promise;
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width; canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          $modalBody.innerHTML = '';
+          $modalBody.appendChild(canvas);
+        } else if (doc.type === 'image' && doc.data) {
+          const img = document.createElement('img');
+          img.src = doc.data;
+          img.alt = doc.name;
+          img.onload = () => { $modalBody.innerHTML = ''; $modalBody.appendChild(img); };
+          img.onerror = () => { $modalBody.innerHTML = '<p>图片加载失败</p>'; };
+        } else {
+          $modalBody.innerHTML = '<p>无法预览该文档（源数据不可用）</p>';
+        }
+      } catch (err) {
+        $modalBody.innerHTML = `<p>渲染失败: ${err.message}</p>`;
+      }
+    }
+
+    function closePreview() {
+      $previewModal.classList.remove('active');
+      currentPreviewDoc = null;
+    }
+
+    $modalClose.addEventListener('click', closePreview);
+    $previewModal.addEventListener('click', (e) => { if (e.target === $previewModal) closePreview(); });
+    $prevPageBtn.addEventListener('click', () => {
+      if (currentPreviewDoc && currentPreviewPage > 1) {
+        currentPreviewPage--;
+        $modalTitle.textContent = `📄 ${currentPreviewDoc.name} - 第 ${currentPreviewPage} 页`;
+        renderPreviewPage();
+      }
+    });
+    $nextPageBtn.addEventListener('click', () => {
+      if (currentPreviewDoc && currentPreviewPage < (currentPreviewDoc.totalPages || 1)) {
+        currentPreviewPage++;
+        $modalTitle.textContent = `📄 ${currentPreviewDoc.name} - 第 ${currentPreviewPage} 页`;
+        renderPreviewPage();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && $previewModal.classList.contains('active')) closePreview();
+    });
+
+    // 独立窗口按钮
+    $btnOpenWindow.addEventListener('click', () => {
+      window.open(window.location.href, '_blank', 'width=1200,height=800');
+      showToast('已在新窗口打开，可复制地址栏路径嵌入笔记', 'success');
+    });
+
+    // 以图搜文
+    async function imageToSearch(file) {
+      if (!file) return;
+      showToast('正在识别图片文字…', 'info');
+      const ocrLang = $ocrLangSelect.value || 'chi_sim+eng';
+      let worker;
+      try { worker = await Tesseract.createWorker(ocrLang); } catch(e) { showToast('OCR启动失败','error'); return; }
+      try {
+        const imgUrl = URL.createObjectURL(file);
+        const result = await worker.recognize(imgUrl);
+        URL.revokeObjectURL(imgUrl);
+        const text = (result.data.text || '').trim();
+        if (text.replace(/\s/g,'').length < 2) { showToast('未识别到有效文字','warning'); return; }
+        const searchTerm = text.replace(/\s+/g,' ').slice(0,80).trim();
+        $searchInput.value = searchTerm;
+        showToast(`已识别并填入: "${searchTerm.slice(0,40)}${searchTerm.length>40?'…':''}"`, 'success');
+        if (documents.length > 0) performSearch(searchTerm);
+        else showToast('请先导入文档','warning');
+      } finally { try { await worker.terminate(); } catch(e){} }
+    }
+
+    // 其他事件绑定
+    $btnSearch.addEventListener('click', () => {
+      const term = $searchInput.value.trim();
+      if (!term) showToast('请输入关键词','warning');
+      else if (documents.length === 0) showToast('请先导入文档','warning');
+      else performSearch(term);
+    });
+    $searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const term = $searchInput.value.trim();
+        if (term && documents.length > 0) performSearch(term);
+      }
+    });
+    let searchTimer;
+    $searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const term = $searchInput.value.trim();
+        if (term && documents.length > 0) performSearch(term);
+        else if (!term && documents.length > 0) {
+          currentSearchTerm = '';
+          $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>';
+        }
+      }, 300);
+    });
+    $btnClearSearch.addEventListener('click', () => {
+      $searchInput.value = '';
+      currentSearchTerm = '';
+      if (documents.length > 0) $resultsList.innerHTML = '<div class="no-results"><span>💡</span><p>请输入关键词搜索</p></div>';
+      else resetResultsView();
+    });
+    $btnImageSearch.addEventListener('click', () => $hiddenImageInput.click());
+    $hiddenImageInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) { imageToSearch(e.target.files[0]); $hiddenImageInput.value = ''; }
+    });
+    $fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) { processFiles(e.target.files); $fileInput.value = ''; }
+    });
+    $uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); $uploadZone.classList.add('drag-over'); });
+    $uploadZone.addEventListener('dragleave', () => $uploadZone.classList.remove('drag-over'));
+    $uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault(); $uploadZone.classList.remove('drag-over');
+      if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files);
+    });
+    document.body.addEventListener('dragover', (e) => { e.preventDefault(); $uploadZone.classList.add('drag-over'); });
+    document.body.addEventListener('dragleave', (e) => {
+      if (!e.relatedTarget || e.relatedTarget === document.documentElement) $uploadZone.classList.remove('drag-over');
+    });
+    document.body.addEventListener('drop', (e) => {
+      e.preventDefault(); $uploadZone.classList.remove('drag-over');
+      if (e.dataTransfer.files.length && !$uploadZone.contains(e.target)) processFiles(e.dataTransfer.files);
+    });
+    $btnClearAll.addEventListener('click', clearAllDocuments);
+    $ocrLangSelect.addEventListener('change', () => {
+      showToast(`OCR语言已切换（新导入文件生效）`, 'info');
+    });
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey && e.key === 'k') || (e.key === '/' && !e.ctrlKey && document.activeElement !== $searchInput)) {
+        e.preventDefault(); $searchInput.focus(); $searchInput.select();
+      }
+    });
+
+    updateFileListUI();
+    $globalProgress.style.display = 'none';
+  })();
+</script>
+</body>
+</html>
